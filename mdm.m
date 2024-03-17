@@ -198,3 +198,214 @@ for idx_t = 1:length(time)-1
 end
 
 
+%%%% second edition
+% I don't know whether this is correct or not, but I already work on it for five hours :(
+%hope this is helpful... still not sure about this contour graph, if you have any progress feel free to message me, Thanks!
+
+% Load the data from the file
+data = readtable('trajectory_24.txt');
+N = height(data);
+
+% Define parameters
+w = 2;                 
+det_t = 0.02;           
+t_k = (0:N-1) * det_t;   
+
+t_min = w * det_t;
+t_max = (N - w) * det_t;
+t = (t_min:det_t:t_max);
+% Define the tau vector
+tau_min = -w * det_t;
+tau_max = (N-w-1)  * det_t;
+tau = (tau_min:det_t:tau_max)'; 
+
+% Initialize variables for positions and velocities
+ax = data{:, 2};
+ay = data{:, 3};
+bx = data{:, 4};
+by = data{:, 5};
+
+% Calculate velocity
+delta_ax = diff(ax);
+delta_ay = diff(ay);
+delta_bx = diff(bx);
+delta_by = diff(by);
+
+% Calculate velocity magnitudes and unit vectors
+v_mag_a = sqrt(delta_ax.^2 + delta_ay.^2);
+v_mag_b = sqrt(delta_bx.^2 + delta_by.^2);
+v_unit_ax = delta_ax ./ v_mag_a;
+v_unit_ay = delta_ay ./ v_mag_a;
+v_unit_bx = delta_bx ./ v_mag_b;
+v_unit_by = delta_by ./ v_mag_b;
+
+% Pad velocities with zeros to maintain the array size
+v_unit_ax = [v_unit_ax; 0];
+v_unit_ay = [v_unit_ay; 0];
+v_unit_bx = [v_unit_bx; 0];
+v_unit_by = [v_unit_by; 0];
+
+% Calculate the dot products for each t and tau
+C_ij = NaN(length(tau), length(t)); 
+
+% Corrected loop for calculating the dot products
+for idx_t = 1:length(t)
+    for idx_tau = 1:length(tau)
+        sum_vij = 0;
+        valid_count = 2*w+1;
+
+        for k = -w:w
+        %don't know why everytime I try  t_idx = idx_t + t_k is not work...
+            t_idx = idx_t + k;
+            tau_idx = idx_tau; 
+
+            % Ensure indices are within bounds and integers
+            if t_idx > 0 && t_idx <= length(t) && tau_idx > 0 && tau_idx <= length(tau)
+                dot_product = v_unit_ax(t_idx) * v_unit_bx(tau_idx) + ...
+                              v_unit_ay(t_idx) * v_unit_by(tau_idx);
+                sum_vij = sum_vij + dot_product;
+            end
+        end
+
+        if valid_count > 0
+            C_ij(idx_tau, idx_t) = sum_vij / valid_count; 
+        end
+    end
+end
+
+disp(size(t));    % [1, length(t)]
+disp(size(tau));  % [length(tau), 1]
+disp(size(C_ij)); % [length(tau), length(t)]
+
+%relative position
+data.rx = bx - ax;
+data.ry = by - ay;
+data.relative_distance = sqrt((data.rx).^2 + (data.ry).^2);
+%heading angle
+heading_angle_bat_a = atan2d([NaN; diff(ay)], [NaN; diff(ax)]);
+heading_angle_bat_b = atan2d([NaN; diff(by)], [NaN; diff(bx)]);
+data.relative_heading_angles = abs(heading_angle_bat_b - heading_angle_bat_a);
+
+% Define a suitable angle and distance threshold for chase 
+chase_distance_threshold = 5; 
+chase_angle_threshold = 20; 
+% Define a suitable angle and distance threshold for coordinated flight
+coordinated_distance_threshold = 10; 
+coordinated_angle_difference_threshold = 90; 
+% Initialize interaction type column
+data.interaction_type = repmat("no interaction", height(data), 1);
+% Identify chases
+chase_indices = data.relative_distance < chase_distance_threshold & data.relative_heading_angles < chase_angle_threshold;
+data.interaction_type(chase_indices) = "chase";
+% Identify coordinated flights
+coordinated_indices = data.relative_distance < coordinated_distance_threshold & abs(data.relative_heading_angles) < coordinated_angle_difference_threshold & ~chase_indices; % To ensure no overlap with chases
+data.interaction_type(coordinated_indices) = "coordinated flight";
+% Manually summarize interaction types
+interaction_types = unique(data.interaction_type);
+summary_counts = zeros(size(interaction_types));
+
+for i = 1:length(interaction_types)
+    summary_counts(i) = sum(data.interaction_type == interaction_types(i));
+end
+
+% Create a table for the summary
+summary_table = table(interaction_types, summary_counts, 'VariableNames', {'InteractionType', 'Count'});
+% Display the summary table
+disp(summary_table);
+
+% figure;
+% contourf(t, tau, C_ij, contour_levels, 'LineStyle', 'none'); % Filled contour plot
+% colormap('jet'); % Use jet colormap for better visibility
+% colorbar; % Add a colorbar
+% 
+% hold on;
+% % [~, h_contour] = contour(t, tau, C_ij', contour_levels, 'LineColor', 'k');
+% % clabel(h_contour); % Label contour lines
+% 
+% % Add labels and title
+% xlabel('Time t (s)');
+% ylabel('Delay τ (s)');
+% title('Delayed Correlation C_{ij}(t, τ)');
+% 
+% hold off; 
+
+% figure;
+% 
+% Trajectory plot
+subplot(1, 2, 1); % Divide the figure window and select the first panel
+hold on;
+plot(ax, ay, 'b-o', 'MarkerSize', 4, 'LineWidth', 1.5, 'DisplayName', 'Bat A');
+plot(bx, by, 'r-x', 'MarkerSize', 4, 'LineWidth', 1.5, 'DisplayName', 'Bat B');
+xlabel('X Position (m)');
+ylabel('Y Position (m)');
+title('Movement Paths of Paired Bats');
+legend('show');
+grid on;
+hold off;
+% 
+% % Assuming C_ij, t, and tau have been calculated as in your contour plot script
+% % Contour plot
+% subplot(1, 2, 2); % Select the second panel
+% % Add your contour plotting code here. Example:
+% contourf(t, tau, C_ij, 20, 'LineStyle', 'none'); % Adjust parameters as needed
+% colorbar;
+% xlabel('Time t (s)');
+% ylabel('Delay τ (s)');
+% title('Delayed Correlation C_{ij}(t, τ)');
+% 
+% % Adjust the layout for better visibility
+% sgtitle('Bat Trajectories and Temporal Correlation Analysis'); % Super title for the figure
+
+% Plot trajectories and contour plot side by side
+% figure;
+% 
+% % Trajectory plot
+% subplot(1, 2, 1); % Divide the figure window and select the first panel
+% hold on;
+% % Plot trajectories for bat A and bat B with time markers
+% plot(ax, ay, 'b-o', 'MarkerSize', 4, 'LineWidth', 1.5, 'DisplayName', 'Bat A');
+% plot(bx, by, 'r-x', 'MarkerSize', 4, 'LineWidth', 1.5, 'DisplayName', 'Bat B');
+% 
+% % Annotate specific time points on the trajectories, if necessary
+% % Example: plot(ax(10), ay(10), 'ks', 'MarkerSize', 10, 'MarkerFaceColor', 'k');
+% 
+% xlabel('X Position (m)');
+% ylabel('Y Position (m)');
+% title('Movement Paths of Paired Bats');
+% legend('show');
+% grid on;
+% hold off;
+% Load your data and preprocess it as you've done before.
+% Assume C_ij is already calculated as the delayed directional correlation matrix
+% For each time point, find the delay that maximizes the correlation
+
+
+
+% Contour plot
+subplot(1, 2, 2); % Select the second panel
+[~, h_contourf] = contourf(t, tau, C_ij, 50, 'LineStyle', 'none'); % Adjust the number of levels as needed
+colorbar;
+hold on;
+% Overlay contour lines at a specific correlation threshold, e.g., 0.95
+%[~, h_contour] = contour(t, tau, C_ij', [0.95, 0.95], 'LineColor', 'k');
+%clabel(h_contour);
+
+xlabel('Time t (s)');
+ylabel('Delay τ (s)');
+title('Delayed Correlation C_{ij}(t, τ)');
+hold off;
+
+% Adjust the layout for better visibility
+sgtitle('Bat Trajectories and Temporal Correlation Analysis'); % Super title for the figure
+
+% Example of separate figure for the histogram
+figure;
+histogram(data.relative_distance, 'BinWidth', 0.1, 'FaceColor', 'b', 'DisplayName', 'Coord - Flight');
+hold on;
+histogram(data.relative_heading_angles, 'BinWidth', 1, 'FaceColor', 'r', 'DisplayName', 'Chase - Flight');
+xlabel('Delay τ (sec)');
+ylabel('Count');
+title('Histogram of Interaction Types');
+legend('show');
+hold off;
+
